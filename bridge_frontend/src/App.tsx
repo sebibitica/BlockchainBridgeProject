@@ -4,9 +4,9 @@ import { createNetworkConfig, SuiClientProvider, WalletProvider } from '@mysten/
 import { getFullnodeUrl } from '@mysten/sui/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { darkTheme } from './myTheme';
-import SuiWallet from './SuiWallet';
-import ETHWallet from './ETHWallet';
-import TransferForm from './TransferForm.tsx';
+import SuiWallet from './components/wallets/SuiWallet.tsx';
+import ETHWallet from './components/wallets/ETHWallet.tsx';
+import TransferForm from './components/transfer_form/TransferForm.tsx';
 
 const { networkConfig } = createNetworkConfig({
 	localnet: { url: getFullnodeUrl('localnet') },

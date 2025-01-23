@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAccounts, useCurrentAccount, ConnectModal, useSuiClient, useDisconnectWallet } from '@mysten/dapp-kit';
 import '@mysten/dapp-kit/dist/index.css';
 
-import suiLogo from './assets/sui.svg';
+import suiLogo from '../../assets/sui.svg';
 
 type CoinBalance = {
   totalBalance: string;

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 
-import mmLogo from './assets/mm.svg';
+import mmLogo from '../../assets/mm.svg';
 
 const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
