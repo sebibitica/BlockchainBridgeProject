@@ -178,3 +178,80 @@ body {
       transform: rotate(360deg);
   }
 }
+
+
+.quiz-buttons {
+  margin: 20px;
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
+
+.quiz-buttons button {
+  padding: 10px 20px;
+  background: #17252A;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.quiz-buttons button:hover {
+  background: #2B7A78;
+}
+
+.quiz-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.quiz-content {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  width: 400px;
+  position: relative;
+}
+
+.close-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.question-item {
+  margin: 15px 0;
+}
+
+.question-item label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.quiz-message {
+  margin-top: 15px;
+  padding: 10px;
+  border-radius: 5px;
+}
+
+.quiz-message.success {
+  background: #dff0d8;
+  color: #3c763d;
+}
+
+.quiz-message.error {
+  background: #f2dede;
+  color: #a94442;
+}

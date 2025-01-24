@@ -7,6 +7,7 @@ const SUI_RPC_URL = getFullnodeUrl("localnet");
 const SUI_SEED_PHRASE = process.env.SUI_SEED_PHRASE;
 const SUI_PACKAGE_OBJECT_ID = process.env.SUI_PACKAGE_OBJECT_ID;
 const SUI_TREASURYCAP_OBJECT_ID = process.env.SUI_TREASURYCAP_OBJECT_ID;
+const SUI_DEPLOYER_ADDRESS = process.env.SUI_DEPLOYER_ADDRESS;
 
 const client = new SuiClient({ url: SUI_RPC_URL });
 const keypair = Ed25519Keypair.deriveKeypair(SUI_SEED_PHRASE);
@@ -48,46 +49,119 @@ const mint = async (recipientAddress, amount) => {
     return result.digest;
 };
 
-const burn = async (senderAddress, amount) => {
-    if (!senderAddress || !amount || truncateAmount(amount) <= 0) {
-        if (truncateAmount(amount) <= 0) {
-            console.log("AMOUNT LESS THAN 0: ", amount);
-            throw new Error("Invalid amount (Cannot be less than or equal to 0)");
-        }
-        throw new Error("Invalid sender address or amount");
+async function burn(senderAddress, amount, txDigest) {
+    const numericAmount = Number(amount);
+    const amountIn6Decimals = to6decimals(numericAmount);
+    
+    if (!senderAddress || numericAmount <= 0) {
+        throw new Error("Invalid burn parameters");
     }
 
+    if (senderAddress !== SUI_DEPLOYER_ADDRESS) {
+        console.log("BURNING USER IS NOT DEPLOYER! CHECKING TRANSACTION PROOF...");
+        if (!txDigest) {
+            throw new Error("Transaction digest required for user burns");
+        }
+
+        const txDetails = await client.getTransactionBlock({
+            digest: txDigest,
+            options: { showEvents: true, showInput: true }
+        });
+
+        const transferEvent = txDetails.events?.find(e => 
+            e.type === `${SUI_PACKAGE_OBJECT_ID}::seb_coin::CoinTransferToBurnEvent`
+        );
+
+        if (!transferEvent?.parsedJson) {
+            throw new Error("Transfer To Burn transfer event not found");
+        }
+
+        const eventData = transferEvent.parsedJson;
+        if (
+            eventData.sender !== senderAddress ||
+            eventData.recipient !== SUI_DEPLOYER_ADDRESS ||
+            Number(eventData.amount) !== amountIn6Decimals ||
+            eventData.coin_id === undefined || eventData.coin_id === null
+        ) {
+            throw new Error("Transfer event validation failed");
+        }
+
+        const coinObject = await client.getObject({
+            id: eventData.coin_id,
+            options: { showOwner: true }
+        });
+
+        if (coinObject.data?.owner?.AddressOwner !== SUI_DEPLOYER_ADDRESS) {
+            throw new Error("Transferred coin not owned by deployer");
+        }
+
+        console.log("TRANSACTION PROOF VALIDATED: ", eventData);
+        console.log("COIN TO BE BURNED IS OWNED BY DEPLOYER: ", coinObject.data.owner);
+
+        return executeDeployerBurn(eventData.coin_id);
+    }
+
+    return handleDeployerDirectBurn(amountIn6Decimals);
+}
+
+async function executeDeployerBurn(coinId) {
+    const burnTx = new Transaction();
+    burnTx.moveCall({
+        target: `${SUI_PACKAGE_OBJECT_ID}::seb_coin::burn`,
+        arguments: [
+            burnTx.object(SUI_TREASURYCAP_OBJECT_ID),
+            burnTx.object(coinId),
+        ],
+    });
+
+    const result = await client.signAndExecuteTransaction({
+        signer: keypair,
+        transaction: burnTx,
+    });
+
+    return result.digest;
+}
+
+// This function is called when the user burning is the deployer
+// Merge and Split coin logic needs to be implemented here to burn the exact amount
+async function handleDeployerDirectBurn(amount) {
+    console.log("USER BURNING IS DEPLOYER!");
     const balance = await client.getBalance({
-        owner: senderAddress,
+        owner: SUI_DEPLOYER_ADDRESS,
         coinType: `${SUI_PACKAGE_OBJECT_ID}::seb_coin::SEB_COIN`,
     });
 
-    if (balance.totalBalance < to6decimals(amount)) {
+    if (balance.totalBalance < amount) {
         throw new Error("Insufficient balance to burn");
     }
 
     console.log("BALANCE: ", balance.totalBalance);
-    console.log("AMOUNT TO BURN: ", to6decimals(amount));
+    console.log("AMOUNT TO BURN: ", amount);
 
     const coins = await client.getCoins({
-        owner: senderAddress,
+        owner: SUI_DEPLOYER_ADDRESS,
         coinType: `${SUI_PACKAGE_OBJECT_ID}::seb_coin::SEB_COIN`,
     });
 
-    const coinsList = coins.data;
-    console.log("COINS LIST: ", coinsList);
+    console.log("COINS LIST: ", coins.data);
 
-    let burnCoinId = "";
-    const coinToBurn = coinsList.find((coin) => coin.balance >= to6decimals(amount));
-    // if there is no single coin with enough balance to burn, merge coins
-    if (!coinToBurn) {
+    let burnCoinData;
+    let burnCoin = coins.data.find(c => Number(c.balance) >= amount);
+
+    let burnCoinEqual = coins.data.find(c => Number(c.balance) === amount);
+    if (burnCoinEqual) {
+        burnCoin = burnCoinEqual;
+    }
+
+    if (!burnCoin) {
+
         let totalBalance = 0;
         let coinsToMerge = [];
 
-        for (const coin of coinsList) {
+        for (const coin of coins.data) {
             totalBalance += Number(coin.balance);
             coinsToMerge.push(coin);
-            if (totalBalance >= to6decimals(amount)) break;
+            if (totalBalance >= amount) break;
         }
 
         console.log("MERGING THESE COINS FOR BURNING", coinsToMerge);
@@ -103,30 +177,47 @@ const burn = async (senderAddress, amount) => {
             transaction: tx,
         });
 
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        burnCoinId = coinsToMerge[0].coinObjectId;
-    } else {
-        console.log("FOUND A SINGLE COIN TO BURN", coinToBurn);
-        burnCoinId = coinToBurn.coinObjectId;
-    }
-    console.log("BURNING  SUI: ", truncateAmount(amount), " SEB");
+        console.log("MERGE RESULT", mergeResult);
 
-    const burnTx = new Transaction();
-    burnTx.moveCall({
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        burnCoinData = coinsToMerge[0];
+    } else{
+        burnCoinData = burnCoin;
+    }
+
+    // If the balance of the coin is equal to the amount to burn, directly burn it
+    if (Number(burnCoinData.balance) === amount) {
+        return executeDeployerBurn(burnCoinData.coinObjectId);
+    }
+
+    // Split the coin to burn the exact amount
+    const splitTx = new Transaction();
+
+    const [coinToBurn, remainingCoin] = splitTx.splitCoins(
+        splitTx.object(burnCoinData.coinObjectId),
+        [
+            splitTx.pure.u64(amount),
+            splitTx.pure.u64(Number(burnCoinData.balance) - amount)
+        ]
+    );
+
+    // burn the coin
+    splitTx.moveCall({
         target: `${SUI_PACKAGE_OBJECT_ID}::seb_coin::burn`,
         arguments: [
-            burnTx.object(SUI_TREASURYCAP_OBJECT_ID),
-            burnTx.object(burnCoinId),
-            burnTx.pure.u64(to6decimals(amount)),
-        ],
+            splitTx.object(SUI_TREASURYCAP_OBJECT_ID),
+            coinToBurn
+        ]
     });
 
-    const result = await client.signAndExecuteTransaction({
+    splitTx.transferObjects([remainingCoin], splitTx.pure.address(SUI_DEPLOYER_ADDRESS));
+
+    const splitResult = await client.signAndExecuteTransaction({
         signer: keypair,
-        transaction: burnTx,
+        transaction: splitTx,
     });
 
-    return result.digest;
-};
+    return splitResult.digest;
+}
 
 module.exports = { mint, burn };

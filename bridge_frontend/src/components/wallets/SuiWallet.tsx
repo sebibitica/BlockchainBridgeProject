@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useAccounts, useCurrentAccount, ConnectModal, useSuiClient, useDisconnectWallet } from '@mysten/dapp-kit';
+import { useAccounts, useCurrentAccount, ConnectModal, useSuiClient, useDisconnectWallet, useSwitchAccount } from '@mysten/dapp-kit';
 import '@mysten/dapp-kit/dist/index.css';
+import { WalletAccount } from '@wallet-standard/base';
 
 import suiLogo from '../../assets/sui.svg';
+
+const suiContractAddress="0xa7346de5cd782b80f3f65d4c7ea4cdff65c937cc48a0a03fecc2feef20c078bc";
+const sebCoin = `${suiContractAddress}::seb_coin::SEB_COIN`;
 
 type CoinBalance = {
   totalBalance: string;
@@ -23,6 +27,7 @@ function SuiWallet({ onAddressChange, onBalanceChange }: SuiWalletProps): JSX.El
   const [balance, setBalance] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { mutate: disconnect } = useDisconnectWallet();
+  const { mutate: switchAccount } = useSwitchAccount();
 
   useEffect(() => {
     if (currentAccount?.address) {
@@ -34,7 +39,7 @@ function SuiWallet({ onAddressChange, onBalanceChange }: SuiWalletProps): JSX.El
     try {
       const balanceResponse: CoinBalance = await suiClient.getBalance({
         owner: address,
-        coinType: '0xa1d730457f0d9eac682d29ab8bc08a65bfcd9f48b20c3f58aca37a0fe83583cb::seb_coin::SEB_COIN',
+        coinType: sebCoin,
       });
       
       console.log('Address: ', address);
@@ -67,6 +72,13 @@ function SuiWallet({ onAddressChange, onBalanceChange }: SuiWalletProps): JSX.El
       navigator.clipboard.writeText(selectedAddress);
       alert('Address copied to clipboard!');
     }
+  };
+
+  const handleAccountChange = (account: WalletAccount) => {
+    switchAccount({ account });
+    setSelectedAddress(account.address);
+    fetchBalance(account.address);
+    onAddressChange(account.address);
   };
 
   const handleRefresh = () => {
@@ -122,18 +134,25 @@ function SuiWallet({ onAddressChange, onBalanceChange }: SuiWalletProps): JSX.El
             Disconnect
           </button>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <select
-              className="address-dropdown"
-              value={selectedAddress || ''}
-              onChange={(e) => setSelectedAddress(e.target.value)}
-              style={{ marginRight: '10px' }}
-            >
-              {accounts.map((account) => (
-                <option key={account.address} value={account.address}>
-                  {account.address}
-                </option>
-              ))}
-            </select>
+          <select
+            className="address-dropdown"
+            value={selectedAddress || ''}
+            onChange={(e) => {
+              const selectedAccount = accounts.find(
+                (account) => account.address === e.target.value
+              );
+              if (selectedAccount) {
+                handleAccountChange(selectedAccount);
+              }
+            }}
+            style={{ marginRight: '10px' }}
+          >
+            {accounts.map((account) => (
+              <option key={account.address} value={account.address}>
+                {account.address}
+              </option>
+            ))}
+          </select>
             <button
               onClick={handleCopyAddress}
               style={{
